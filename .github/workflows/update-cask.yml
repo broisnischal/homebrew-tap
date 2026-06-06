@@ -1,0 +1,94 @@
+# Keeps Casks/stroke.rb in sync with the latest broisnischal/stroke release.
+#
+# Runs on a schedule (and on demand), needs no PAT — it reads the public release
+# and commits to this repo with the built-in GITHUB_TOKEN. The main repo can also
+# trigger it instantly after a release if a PAT is configured there.
+
+name: Update Stroke cask
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync cask to latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO=broisnischal/stroke
+          TAG=$(gh release view -R "$REPO" --json tagName -q .tagName)
+          VERSION="${TAG#v}"
+
+          CURRENT=$(grep -m1 'version "' Casks/stroke.rb | sed -E 's/.*version "([^"]+)".*/\1/')
+          if [ "$CURRENT" = "$VERSION" ]; then
+            echo "Cask already at $VERSION — nothing to do."
+            exit 0
+          fi
+          echo "Updating cask: $CURRENT -> $VERSION"
+
+          BASE="https://github.com/$REPO/releases/download/$TAG"
+          curl -fsSL -o arm.dmg   "$BASE/stroke_${VERSION}_aarch64.dmg"
+          curl -fsSL -o intel.dmg "$BASE/stroke_${VERSION}_x64.dmg"
+          ARM_SHA=$(sha256sum arm.dmg   | cut -d' ' -f1)
+          INTEL_SHA=$(sha256sum intel.dmg | cut -d' ' -f1)
+          rm -f arm.dmg intel.dmg
+
+          VERSION="$VERSION" ARM_SHA="$ARM_SHA" INTEL_SHA="$INTEL_SHA" node - <<'JSEOF'
+          const fs = require('fs')
+          const { VERSION, ARM_SHA, INTEL_SHA } = process.env
+          const cask = `cask "stroke" do
+  arch arm: "aarch64", intel: "x64"
+
+  version "${VERSION}"
+
+  on_arm do
+    sha256 "${ARM_SHA}"
+  end
+  on_intel do
+    sha256 "${INTEL_SHA}"
+  end
+
+  url "https://github.com/broisnischal/stroke/releases/download/v#{version}/stroke_#{version}_#{arch}.dmg"
+  name "Stroke"
+  desc "Fast desktop database client for PostgreSQL, MySQL, SQLite, and Cloudflare D1"
+  homepage "https://github.com/broisnischal/stroke"
+
+  app "Stroke.app"
+
+  # Stroke is ad-hoc signed (no paid Apple Developer cert), so strip the
+  # quarantine flag Homebrew applies on download. Without this, Gatekeeper
+  # shows "Stroke is damaged and can't be opened."
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-cr", "#{appdir}/Stroke.app"]
+  end
+
+  zap trash: [
+    "~/Library/Application Support/com.broisnischal.stroke",
+    "~/Library/Caches/com.broisnischal.stroke",
+    "~/Library/Preferences/com.broisnischal.stroke.plist",
+    "~/Library/Saved Application State/com.broisnischal.stroke.savedState",
+  ]
+end
+`
+          fs.writeFileSync('Casks/stroke.rb', cask)
+          JSEOF
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/stroke.rb
+          if git diff --cached --quiet; then
+            echo "No change."
+          else
+            git commit -m "stroke $VERSION"
+            git push
+          fi
