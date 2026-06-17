@@ -1,13 +1,13 @@
 cask "stroke" do
   arch arm: "aarch64", intel: "x64"
 
-  version "0.4.7"
+  version "0.5.0"
 
   on_arm do
-    sha256 "e9e2b5b270c43e0a2197dc60b748814f1377129cd34d36b02707a677934e29b2"
+    sha256 "6317f304d29ea818d9b85a6fa943a5644b10385c308dd5c37702baacc514915f"
   end
   on_intel do
-    sha256 "0e0edbb77ffb7144d775888bd43074621c20df0800a52bc50faee252976514b8"
+    sha256 "2db2c6dee11ade57cba0b09213780ffcf018b2fd9312af26ed1b38f705a0b525"
   end
 
   url "https://github.com/broisnischal/stroke/releases/download/v#{version}/stroke_#{version}_#{arch}.dmg"
